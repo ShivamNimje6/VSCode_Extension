@@ -7,10 +7,11 @@
       "request": "launch",
       "runtimeExecutable": "${execPath}",
       "args": [
-        "--extensionDevelopmentPath=${workspaceFolder}"
+        "--extensionDevelopmentPath=${workspaceFolder}/VSCode_Extension"
       ],
+      "cwd": "${workspaceFolder}/VSCode_Extension",
       "outFiles": [
-        "${workspaceFolder}/out/**/*.js"
+        "${workspaceFolder}/VSCode_Extension/out/**/*.js"
       ],
       "preLaunchTask": "npm: compile"
     }

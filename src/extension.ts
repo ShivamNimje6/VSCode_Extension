@@ -1,6 +1,7 @@
 import * as vscode from 'vscode';
-import * as fs from 'fs-extra';
 import * as path from 'path';
+import * as fs from 'fs';              // for existsSync etc
+import { promises as fsp } from 'fs'; // for await fsp.readFile / writeFile
 import * as yaml from 'js-yaml';
 import simpleGit, { SimpleGit } from 'simple-git';
 import { Octokit } from '@octokit/rest';
@@ -15,6 +16,21 @@ type ParsedPrompt = {
   environment?: string;
   region?: string;
 };
+
+
+/**
+ * Walk up from `start` until a directory containing .git is found.
+ * Returns the path to the git top-level folder, or undefined if not found.
+ */
+function findGitRoot(start: string): string | undefined {
+  let cur = path.resolve(start);
+  const root = path.parse(cur).root;
+  while (true) {
+    if (fs.existsSync(path.join(cur, '.git'))) return cur;
+    if (cur === root) return undefined;
+    cur = path.dirname(cur);
+  }
+}
 
 export function activate(context: vscode.ExtensionContext) {
   const disposable = vscode.commands.registerCommand('flagUpdatePr.update', async () => {
@@ -71,7 +87,13 @@ export function activate(context: vscode.ExtensionContext) {
       await updateFileFlag(filePath, parsed);
 
       // ----------------- Git operations -----------------
-      const git: SimpleGit = simpleGit(root);
+      const repoRoot = findGitRoot(root);
+      if (!repoRoot) {
+        vscode.window.showErrorMessage(`No git repository found starting at ${root}. Initialize git or open the correct folder.`);
+        return;
+      }
+      console.log('Using git repo root:', repoRoot);
+      const git: SimpleGit = simpleGit(repoRoot);
       const branchPrefix = vscode.workspace.getConfiguration('flagUpdatePr').get('branchPrefix') as string || 'flag-update';
       const branchName = `${branchPrefix}/${parsed.flagName}-${Date.now()}`;
 
@@ -162,34 +184,37 @@ function findCandidateFiles(root: string): Promise<string[]> {
   return Promise.resolve(uniq);
 }
 
-
 async function updateFileFlag(filePath: string, parsed: ParsedPrompt) {
   const ext = path.extname(filePath).toLowerCase();
-  const raw = await fs.readFile(filePath, 'utf8');
+  const raw = await fsp.readFile(filePath, 'utf8'); // returns string
 
   if (ext === '.json') {
     const json = JSON.parse(raw);
     setNestedValue(json, parsed.flagName, parsed.value);
     const formatted = JSON.stringify(json, null, 2);
-    await fs.writeFile(filePath, formatted, 'utf8');
+    await fsp.writeFile(filePath, formatted, 'utf8');
   } else if (ext === '.yaml' || ext === '.yml') {
     const doc = yaml.load(raw) as any;
     setNestedValue(doc, parsed.flagName, parsed.value);
     const out = yaml.dump(doc, { noRefs: true });
-    await fs.writeFile(filePath, out, 'utf8');
+    await fsp.writeFile(filePath, out, 'utf8');
   } else {
-    // try to guess JSON
     try {
       const json = JSON.parse(raw);
       setNestedValue(json, parsed.flagName, parsed.value);
-      await fs.writeFile(filePath, JSON.stringify(json, null, 2), 'utf8');
+      await fsp.writeFile(filePath, JSON.stringify(json, null, 2), 'utf8');
     } catch {
-      // fallback: do a text replace of simple flag occurrences
-      const replaced = raw.replace(new RegExp(`${parsed.flagName}\\s*:\\s*[^\\n\\r,]+`, 'i'), `${parsed.flagName}: ${parsed.value}`);
-      await fs.writeFile(filePath, replaced, 'utf8');
+      const replaced = raw.replace(
+        new RegExp(`${parsed.flagName}\\s*:\\s*[^\\n\\r,]+`, 'i'),
+        `${parsed.flagName}: ${parsed.value}`
+      );
+      await fsp.writeFile(filePath, replaced, 'utf8');
     }
   }
 }
+
+
+
 
 function setNestedValue(obj: any, dottedKey: string, value: any) {
   // supports dot notation (e.g., a.b.c) or simple key

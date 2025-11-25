@@ -39,12 +39,28 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.activate = activate;
 exports.deactivate = deactivate;
 const vscode = __importStar(require("vscode"));
-const fs = __importStar(require("fs-extra"));
 const path = __importStar(require("path"));
+const fs = __importStar(require("fs")); // for existsSync etc
+const fs_1 = require("fs"); // for await fsp.readFile / writeFile
 const yaml = __importStar(require("js-yaml"));
 const simple_git_1 = __importDefault(require("simple-git"));
 const rest_1 = require("@octokit/rest");
 const glob_1 = require("glob");
+/**
+ * Walk up from `start` until a directory containing .git is found.
+ * Returns the path to the git top-level folder, or undefined if not found.
+ */
+function findGitRoot(start) {
+    let cur = path.resolve(start);
+    const root = path.parse(cur).root;
+    while (true) {
+        if (fs.existsSync(path.join(cur, '.git')))
+            return cur;
+        if (cur === root)
+            return undefined;
+        cur = path.dirname(cur);
+    }
+}
 function activate(context) {
     const disposable = vscode.commands.registerCommand('flagUpdatePr.update', async () => {
         try {
@@ -93,7 +109,13 @@ function activate(context) {
             const filePath = path.join(root, filePick);
             await updateFileFlag(filePath, parsed);
             // ----------------- Git operations -----------------
-            const git = (0, simple_git_1.default)(root);
+            const repoRoot = findGitRoot(root);
+            if (!repoRoot) {
+                vscode.window.showErrorMessage(`No git repository found starting at ${root}. Initialize git or open the correct folder.`);
+                return;
+            }
+            console.log('Using git repo root:', repoRoot);
+            const git = (0, simple_git_1.default)(repoRoot);
             const branchPrefix = vscode.workspace.getConfiguration('flagUpdatePr').get('branchPrefix') || 'flag-update';
             const branchName = `${branchPrefix}/${parsed.flagName}-${Date.now()}`;
             await git.checkoutLocalBranch(branchName);
@@ -176,30 +198,28 @@ function findCandidateFiles(root) {
 }
 async function updateFileFlag(filePath, parsed) {
     const ext = path.extname(filePath).toLowerCase();
-    const raw = await fs.readFile(filePath, 'utf8');
+    const raw = await fs_1.promises.readFile(filePath, 'utf8'); // returns string
     if (ext === '.json') {
         const json = JSON.parse(raw);
         setNestedValue(json, parsed.flagName, parsed.value);
         const formatted = JSON.stringify(json, null, 2);
-        await fs.writeFile(filePath, formatted, 'utf8');
+        await fs_1.promises.writeFile(filePath, formatted, 'utf8');
     }
     else if (ext === '.yaml' || ext === '.yml') {
         const doc = yaml.load(raw);
         setNestedValue(doc, parsed.flagName, parsed.value);
         const out = yaml.dump(doc, { noRefs: true });
-        await fs.writeFile(filePath, out, 'utf8');
+        await fs_1.promises.writeFile(filePath, out, 'utf8');
     }
     else {
-        // try to guess JSON
         try {
             const json = JSON.parse(raw);
             setNestedValue(json, parsed.flagName, parsed.value);
-            await fs.writeFile(filePath, JSON.stringify(json, null, 2), 'utf8');
+            await fs_1.promises.writeFile(filePath, JSON.stringify(json, null, 2), 'utf8');
         }
         catch {
-            // fallback: do a text replace of simple flag occurrences
             const replaced = raw.replace(new RegExp(`${parsed.flagName}\\s*:\\s*[^\\n\\r,]+`, 'i'), `${parsed.flagName}: ${parsed.value}`);
-            await fs.writeFile(filePath, replaced, 'utf8');
+            await fs_1.promises.writeFile(filePath, replaced, 'utf8');
         }
     }
 }

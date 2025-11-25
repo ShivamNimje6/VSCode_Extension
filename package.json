@@ -1,0 +1,61 @@
+{
+  "name": "flag-update-pr",
+  "displayName": "Flag Update PR",
+  "description": "Update a flag in JSON/YAML and create PR from VS Code",
+  "version": "0.1.0",
+  "engines": {
+    "vscode": "^1.80.0"
+  },
+  "publisher": "your-pub",
+  "categories": [
+    "Other"
+  ],
+  "activationEvents": [
+    "onCommand:flagUpdatePr.update"
+  ],
+  "main": "./out/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "flagUpdatePr.update",
+        "title": "Update Flag and Create PR"
+      }
+    ],
+    "configuration": {
+      "type": "object",
+      "title": "Flag Update PR",
+      "properties": {
+        "flagUpdatePr.githubToken": {
+          "type": "string",
+          "default": "",
+          "description": "GitHub token (repo scope) used to create PR. You can also set env var GITHUB_TOKEN."
+        },
+        "flagUpdatePr.branchPrefix": {
+          "type": "string",
+          "default": "flag-update",
+          "description": "Prefix for created branches."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run compile",
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./"
+  },
+  "devDependencies": {
+    "@types/fs-extra": "^11.0.4",
+    "@types/glob": "^8.1.0",
+    "@types/js-yaml": "^4.0.9",
+    "@types/node": "^18.19.130",
+    "@types/vscode": "^1.80.0",
+    "typescript": "^5.0.0"
+  },
+  "dependencies": {
+    "@octokit/rest": "^19.0.0",
+    "fs-extra": "^11.1.0",
+    "glob": "^10.2.7",
+    "js-yaml": "^4.1.0",
+    "simple-git": "^3.18.0"
+  }
+}

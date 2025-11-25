@@ -19,6 +19,24 @@ type ParsedPrompt = {
 export function activate(context: vscode.ExtensionContext) {
   const disposable = vscode.commands.registerCommand('flagUpdatePr.update', async () => {
     try {
+      // prefer opened workspace, but when running in Extension Dev Host fall back to the extension dev path
+      const workspaceFolders = vscode.workspace.workspaceFolders;
+      let root: string | undefined;
+      if (workspaceFolders && workspaceFolders.length > 0) {
+        root = workspaceFolders[0].uri.fsPath;
+      } else {
+        // context.extensionUri points to the folder passed via --extensionDevelopmentPath
+        root = context.extensionUri?.fsPath;
+      }
+
+      if (!root) {
+        vscode.window.showErrorMessage('Open a workspace folder first or ensure extension development path is available.');
+        return;
+      }
+
+      console.log('Using root for operations:', root);
+
+      // ----------------- prompt + parsing -----------------
       const prompt = await vscode.window.showInputBox({
         prompt: 'Enter update prompt (e.g. "onUPDATE volumeQuotaFlag to false for stage environment and delhi region")',
         placeHolder: 'onUPDATE volumeQuotaFlag to false for stage environment and delhi region'
@@ -34,21 +52,14 @@ export function activate(context: vscode.ExtensionContext) {
         return;
       }
 
-      const workspaceFolders = vscode.workspace.workspaceFolders;
-      if (!workspaceFolders || workspaceFolders.length === 0) {
-        vscode.window.showErrorMessage('Open a workspace folder first.');
-        return;
-      }
-      const root = workspaceFolders[0].uri.fsPath;
-
-      // Search candidate files
+      // ----------------- file selection & update -----------------
       const candidates = await findCandidateFiles(root);
       if (candidates.length === 0) {
         vscode.window.showErrorMessage('No candidate JSON/YAML config files found in workspace.');
         return;
       }
 
-      const filePick = await vscode.window.showQuickPick(candidates.map(c => path.relative(root, c)), {
+      const filePick = await vscode.window.showQuickPick(candidates.map(c => path.relative(root!, c)), {
         placeHolder: 'Pick file to update'
       });
       if (!filePick) {
@@ -59,7 +70,7 @@ export function activate(context: vscode.ExtensionContext) {
 
       await updateFileFlag(filePath, parsed);
 
-      // Git operations
+      // ----------------- Git operations -----------------
       const git: SimpleGit = simpleGit(root);
       const branchPrefix = vscode.workspace.getConfiguration('flagUpdatePr').get('branchPrefix') as string || 'flag-update';
       const branchName = `${branchPrefix}/${parsed.flagName}-${Date.now()}`;
@@ -69,7 +80,7 @@ export function activate(context: vscode.ExtensionContext) {
       await git.commit(`Update ${parsed.flagName} to ${parsed.value}`);
       await git.push('origin', branchName);
 
-      // Create PR on GitHub
+      // ----------------- Create PR -----------------
       const token = getToken();
       if (!token) {
         vscode.window.showWarningMessage('No GitHub token found. Set flagUpdatePr.githubToken or environment GITHUB_TOKEN to create PR. Branch was pushed.');
@@ -101,7 +112,6 @@ export function activate(context: vscode.ExtensionContext) {
       });
 
       vscode.window.showInformationMessage(`PR created: ${pr.data.html_url}`);
-      // Optionally open PR in browser
       vscode.env.openExternal(vscode.Uri.parse(pr.data.html_url));
 
     } catch (err: any) {
@@ -112,6 +122,7 @@ export function activate(context: vscode.ExtensionContext) {
 
   context.subscriptions.push(disposable);
 }
+
 
 export function deactivate() {}
 
